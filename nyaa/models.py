@@ -492,9 +492,11 @@ class User(db.Model):
 
     nyaa_torrents = db.relationship('NyaaTorrent', back_populates='user', lazy='dynamic')
     nyaa_comments = db.relationship('NyaaComment', back_populates='user', lazy='dynamic')
+    nyaa_notifications = db.relationship('NyaaNotification', back_populates='user', lazy='dynamic')
 
     sukebei_torrents = db.relationship('SukebeiTorrent', back_populates='user', lazy='dynamic')
     sukebei_comments = db.relationship('SukebeiComment', back_populates='user', lazy='dynamic')
+    sukebei_notifications = db.relationship('SukebeiNotification', back_populates='user', lazy='dynamic')
 
     bans = db.relationship('Ban', uselist=True, foreign_keys='Ban.user_id')
 
@@ -671,6 +673,86 @@ class AdminLogBase(DeclarativeHelperBase):
     @classmethod
     def all_logs(cls):
         return cls.query
+
+
+class NotificationEventType(IntEnum):
+    TORRENT_DELETE = 0
+    TORRENT_UNDELETE = 1
+    TORRENT_BAN = 2
+    TORRENT_UNBAN = 3
+    USER_BAN = 4
+    USER_UNBAN = 5
+    COMMENT_DELETE = 6
+    COMMENT_UNDELETE = 7
+    MENTION = 8
+
+
+class NotificationEventBase(DeclarativeHelperBase):
+    __tablename_base__ = 'notification_events'
+
+    id = db.Column(db.Integer, primary_key=True)
+    created_time = db.Column(db.DateTime(timezone=False), default=datetime.utcnow)
+    processed = db.Column(db.Boolean, default=False)
+    event_type = db.Column(ChoiceType(NotificationEventType, impl=db.Integer()), nullable=False)
+
+
+    @declarative.declared_attr
+    def notifier_id(cls):
+        return db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+
+    @declarative.declared_attr
+    def notified_id(cls):
+        return db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+
+    @declarative.declared_attr
+    def torrent_id(cls):
+        return db.Column(db.Integer, db.ForeignKey(
+            cls._table_prefix('torrents.id'), ondelete='CASCADE'), nullable=False)
+
+    def __init__(self, notifier_id, notified_id, torrent_id, event_type):
+        self.notifier_id = notifier_id
+        self.notified_id = notified_id
+        self.torrent_id = torrent_id
+        self.event_type = event_type
+
+    def __repr__(self):
+        return '<NotificationEvent %r>' % self.id
+
+    @declarative.declared_attr
+    def notifier(cls):
+        return db.relationship('User', uselist=False, lazy="joined", foreign_keys=[cls.notifier_id])
+
+    @declarative.declared_attr
+    def notified(cls):
+        return db.relationship('User', uselist=False, lazy="joined", foreign_keys=[cls.notified_id])
+
+    @declarative.declared_attr
+    def torrent(cls):
+        return db.relationship(cls._flavor_prefix('Torrent'), uselist=False, lazy="joined")
+
+
+class NotificationBase(DeclarativeHelperBase):
+    __tablename_base__ = 'notifications'
+
+    id = db.Column(db.Integer, primary_key=True)
+    created_time = db.Column(db.DateTime(timezone=False), default=datetime.utcnow)
+    text = db.Column(TextType(collation=COL_UTF8MB4_BIN), nullable=False)
+
+    @declarative.declared_attr
+    def user_id(cls):
+        return db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+
+    def __init__(self, notifier_id, notified_id):
+        self.notifier_id = notifier_id
+        self.notified_id = notified_id
+
+    def __repr__(self):
+        return '<Notification %r>' % self.id
+
+    @declarative.declared_attr
+    def user(cls):
+        return db.relationship('User', uselist=False,
+                               back_populates=cls._table_prefix('notifications'), lazy="joined")
 
 
 class ReportStatus(IntEnum):
@@ -938,6 +1020,24 @@ class SukebeiTrackerApi(TrackerApiBase, db.Model):
     __flavor__ = 'Sukebei'
 
 
+# NotificationEvent
+class NyaaNotificationEvent(NotificationEventBase, db.Model):
+    __flavor__ = 'Nyaa'
+
+
+class SukebeiNotificationEvent(NotificationEventBase, db.Model):
+    __flavor__ = 'Sukebei'
+
+
+# Notification
+class NyaaNotification(NotificationBase, db.Model):
+    __flavor__ = 'Nyaa'
+
+
+class SukebeiNotification(NotificationBase, db.Model):
+    __flavor__ = 'Sukebei'
+
+
 # Choose our defaults for models.Torrent etc
 if config['SITE_FLAVOR'] == 'nyaa':
     Torrent = NyaaTorrent
@@ -951,6 +1051,8 @@ if config['SITE_FLAVOR'] == 'nyaa':
     Report = NyaaReport
     TorrentNameSearch = NyaaTorrentNameSearch
     TrackerApi = NyaaTrackerApi
+    NotificationEvent = NyaaNotificationEvent
+    Notification = NyaaNotification
 
 elif config['SITE_FLAVOR'] == 'sukebei':
     Torrent = SukebeiTorrent
@@ -964,3 +1066,5 @@ elif config['SITE_FLAVOR'] == 'sukebei':
     Report = SukebeiReport
     TorrentNameSearch = SukebeiTorrentNameSearch
     TrackerApi = SukebeiTrackerApi
+    NotificationEvent = SukebeiNotificationEvent
+    Notification = SukebeiNotification
