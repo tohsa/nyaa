@@ -195,6 +195,8 @@ def _delete_torrent(torrent, form, banform):
         action = 'deleted'
         torrent.deleted = True
         db.session.add(torrent)
+        if uploader:
+            db.session.add(models.NotificationEvent(editor.id, uploader.id, torrent.id, models.NotificationEventType.TORRENT_DELETE))
 
     elif ban_torrent and not torrent.banned and editor.is_moderator:
         action = 'banned'
@@ -202,6 +204,8 @@ def _delete_torrent(torrent, form, banform):
         if not torrent.deleted:
             torrent.deleted = True
             action = 'deleted and banned'
+            db.session.add(models.NotificationEvent(editor.id, uploader.id, torrent.id, models.NotificationEventType.TORRENT_DELETE))
+        db.session.add(models.NotificationEvent(editor.id, uploader.id, torrent.id, models.NotificationEventType.TORRENT_BAN))
         db.session.add(models.TrackerApi(torrent.info_hash, 'remove'))
         torrent.stats.seed_count = 0
         torrent.stats.leech_count = 0
@@ -214,11 +218,14 @@ def _delete_torrent(torrent, form, banform):
             action = 'undeleted and unbanned'
             torrent.banned = False
             db.session.add(models.TrackerApi(torrent.info_hash, 'insert'))
+            db.session.add(models.NotificationEvent(editor.id, uploader.id, torrent.id, models.NotificationEventType.TORRENT_UNBAN))
+        db.session.add(models.NotificationEvent(editor.id, uploader.id, torrent.id, models.NotificationEventType.TORRENT_UNDELETE))
         db.session.add(torrent)
 
     elif form.unban.data and torrent.banned:
         action = 'unbanned'
         torrent.banned = False
+        db.session.add(models.NotificationEvent(editor.id, uploader.id, torrent.id, models.NotificationEventType.TORRENT_UNBAN))
         db.session.add(models.TrackerApi(torrent.info_hash, 'insert'))
         db.session.add(torrent)
 
@@ -262,6 +269,7 @@ def _delete_torrent(torrent, form, banform):
     if uploader:
         uploader.status = models.UserStatusType.BANNED
         db.session.add(uploader)
+        db.session.add(models.NotificationEvent(editor.id, uploader.id, torrent.id, models.NotificationEventType.USER_BAN))
         ban1.user_id = uploader.id
         ban2.user_id = uploader.id
 
